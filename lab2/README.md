@@ -685,19 +685,86 @@ mode=volatile samples=2,000,000
 #### Этап 4: DFS
 | Программа | Расписаний | Ошибок | Первая ошибочная трасса | Почему программа на ней ломается |
 |---|---|---|---|---|
-| `withdraw-v1` | | | | |
-| `withdraw-v2` | | | | |
-| `withdraw-v0` | | | | |
-| `transfer` | | | | |
+| `withdraw-v1` | 6 | 4 | BBAAAABB | см. ниже |
+| `withdraw-v2` | 2 | 0 | - | - |
+| `withdraw-v0` | 20 | 18 | BBAAAB | см. ниже |
+| `transfer` | 6 | 2 | AB | см. ниже |
+
+С учетом этапа 5 DFS пытается минимизировать количество переключений.
+Поэтому "первая" ошибочная трасса не первая в лексикографическом смысле.
+Т.к. в начале исполнения `run()` доводит все потоки до первой паузы,
+то первый `pick()` вызывается с `last = B`.
+
+`withdraw-v1`:
+
+Как в предыдущем задании
+
+```
+            поток A                      поток B                    выбран
+   ⏸ 1                                mu.lock()                       B
+                                      ok = balance >= 100  (true)
+   ⏸ 2                                mu.unlock()                     B
+                                      window()
+   ⏸ 3   mu.lock()                                                    A
+         ok = balance >= 100  (true)
+   ⏸ 4   mu.unlock()                                                  A
+         window()
+   ⏸ 5   mu.lock()                                                    A
+         balance -= 100       (0)
+   ⏸ 6   mu.unlock()                                                  A
+         return  — A закончил
+   ⏸ 7                                mu.lock()                       B
+                                      balance -= 100       (-100)
+   ⏸ 8                                mu.unlock()                     B
+                                      return  — B закончил
+```
+
+`withdraw-v0`:
+
+Оба потока считают, что успешно списали деньги, но в реальности списание
+произошло один раз.
+
+```
+            поток A                      поток B                    выбран
+   ⏸ 1                                ok = balance >= 100  (true)     B
+                                      window()
+   ⏸ 2                                updated = balance - 100 (0)     B
+   ⏸ 3   ok = balance >= 100  (true)                                  A
+         window()
+   ⏸ 4   updated = balance - 100 (0)                                  A
+   ⏸ 5   balance = updated                                            A
+         return  — A закончил
+   ⏸ 6                                balance = updated               B
+                                      return  — B закончил
+```
+
+`transfer`:
+
+Как в предыдущих заданиях
+
+```
+            поток A                      поток B                    выбран
+   ⏸ 1   mu1.lock()                                                    A
+         window()
+   ⏸ 2                                mu2.lock()                       B
+                                      window()
+   ---------------------------DEADLOCK----------------------------------
+   ⏸ ?   mu2.lock()                   mu1.lock()                       ?
+```
+
+В `withdraw-v2` меньше состояний, т.к. всего один `lock()`/`unlock()` вместо двух.
 
 #### Этап 5: Bounded
+
+Вынеснение := pick(enabled ∪ {last}, last) != last
+
 | Программа | K | Расписаний | Ошибок | Первая ошибочная трасса | На каком решении вытеснение (для минимального K; нумерация с 1, как в этапе 5) |
 |---|---|---|---|---|---|
-| `withdraw-v1` | 0 | | | | |
-| `withdraw-v1` | 1 | | | | |
-| `withdraw-v1` | 2 | | | | |
-| `transfer` | 0 | | | | |
-| `transfer` | 1 | | | | |
+| `withdraw-v1` | 0 | 1 | 0 | - | - |
+| `withdraw-v1` | 1 | 2 | 1 | BBAAAABB | 3 |
+| `withdraw-v1` | 2 | 5 | 3 | BBAAAABB | 3 |
+| `transfer` | 0 | 1 | 0 | - | - |
+| `transfer` | 1 | 4 | 1 | BA | 1 |
 
 ### 3. Результаты этапа 6 (Коллектор)
 
