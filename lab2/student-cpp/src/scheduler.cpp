@@ -123,13 +123,26 @@ void await_impl(std::function<bool()> cond) {
 }
 
 void await(std::function<bool()> cond) {
-  log("window");
-  await_impl(cond);
+  bool wasFalse = false;
+  bool wasTrue = false;
+  const auto condWrapped = [&wasFalse, &wasTrue, &cond] {
+    if (!wasTrue) {
+      const bool res = cond();
+      wasFalse |= !res;
+      wasTrue |= res;
+    }
+    return wasTrue;
+  };
+  await_impl(condWrapped);
+  if (wasFalse) {
+    mark_dirty();
+    log("await done");
+  }
 }
 
 void point() {
-  log("window");
   mark_dirty();
+  log("window");
 }
 
 void log(std::string_view log) {
